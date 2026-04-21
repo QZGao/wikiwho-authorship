@@ -1,0 +1,13 @@
+{
+  "name": "wikiwho-authorship",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs"
+  },
+  "devDependencies": {
+    "chart.js": "^4.5.1",
+    "esbuild": "^0.25.11"
+  }
+}
