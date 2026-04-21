@@ -63,16 +63,6 @@ function tf( variants, replacements ) {
     return text;
 }
 
-function getDefaultAction() {
-    return {
-        label: t( {
-            en: 'Close',
-            hans: '关闭',
-            hant: '關閉'
-        } )
-    };
-}
-
 function getLocalizationOptions() {
     return {
         othersLabel: t( {
@@ -492,10 +482,6 @@ function createRootComponent( Vue ) {
                 return `${ dialogTitle.value }. ${ detail }`;
             } );
 
-            function closeDialog() {
-                reactiveState.open = false;
-            }
-
             watch(
                 function () {
                     return reactiveState.open;
@@ -513,9 +499,7 @@ function createRootComponent( Vue ) {
                 chartHasData: chartHasData,
                 chartModeLabel: chartModeLabel,
                 chartOptions: chartOptions,
-                closeDialog: closeDialog,
                 currentView: currentView,
-                defaultAction: getDefaultAction(),
                 dialogTitle: dialogTitle,
                 exclusionsLabel: exclusionsLabel,
                 formatNumber: formatNumber,
@@ -529,8 +513,6 @@ function createRootComponent( Vue ) {
     class="wwa-dialog"
     :title="dialogTitle"
     :use-close-button="true"
-    :default-action="defaultAction"
-    @default="closeDialog"
 >
     <div class="wwa-body">
         <div class="wwa-status-grid" aria-live="polite">
