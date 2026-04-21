@@ -142,20 +142,10 @@ function getStaticTexts() {
             hans: '最新修订版本',
             hant: '最新修訂版本'
         } ),
-        loadingNote: t( {
-            en: 'The dialog fetches once on open, computes both citation-hidden and citation-included views immediately, and toggles the checkbox without refetching.',
-            hans: '对话框在打开时只抓取一次，并立即计算隐藏引用与包含引用两种视图；切换复选框时不会重新抓取。',
-            hant: '對話框在開啟時只抓取一次，並立即計算隱藏引用與包含引用兩種檢視；切換核取方塊時不會重新抓取。'
-        } ),
         totalSurvivingBytes: t( {
             en: 'Total surviving bytes',
             hans: '现存字节总数',
             hant: '現存位元組總數'
-        } ),
-        wiki: t( {
-            en: 'Wiki',
-            hans: '维基',
-            hant: '維基'
         } )
     };
 }
@@ -546,16 +536,8 @@ function createRootComponent( Vue ) {
                 <span class="wwa-status-value">{{ state.articleTitle || '—' }}</span>
             </div>
             <div class="wwa-status-card">
-                <span class="wwa-status-label">{{ texts.wiki }}</span>
-                <span class="wwa-status-value">{{ state.wiki || '—' }}</span>
-            </div>
-            <div class="wwa-status-card">
                 <span class="wwa-status-label">{{ texts.latestRevision }}</span>
                 <span class="wwa-status-value">{{ state.latestRevisionId || '—' }}</span>
-            </div>
-            <div class="wwa-status-card">
-                <span class="wwa-status-label">{{ texts.exclusions }}</span>
-                <span class="wwa-status-value">{{ exclusionsLabel }}</span>
             </div>
             <div class="wwa-status-card">
                 <span class="wwa-status-label">{{ texts.totalSurvivingBytes }}</span>
@@ -564,10 +546,6 @@ function createRootComponent( Vue ) {
             <div class="wwa-status-card">
                 <span class="wwa-status-label">{{ texts.contributors }}</span>
                 <span class="wwa-status-value">{{ currentView ? formatNumber( currentView.contributorCount ) : '—' }}</span>
-            </div>
-            <div class="wwa-status-card">
-                <span class="wwa-status-label">{{ texts.chart }}</span>
-                <span class="wwa-status-value">{{ chartModeLabel }}</span>
             </div>
         </div>
 
@@ -594,10 +572,6 @@ function createRootComponent( Vue ) {
                 <div v-else class="wwa-state">
                     {{ texts.currentViewEmpty }}
                 </div>
-            </div>
-
-            <div class="wwa-note">
-                {{ texts.loadingNote }}
             </div>
         </template>
     </div>
