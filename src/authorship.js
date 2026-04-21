@@ -1,4 +1,5 @@
 const DEFAULT_TOP_SLICES = 10;
+const CALCULATION_YIELD_INTERVAL_MS = 40;
 const REF_SPAN_RE =
     /<ref(?=[\s>/]|name=|group=)[^>]*?\/>|<ref(?=[\s>/]|name=|group=)[^>]*?>[\s\S]*?<\/ref\s*>/gi;
 const TEMPLATE_PREFIX_RE = /^template:/i;
@@ -8,6 +9,53 @@ export { DEFAULT_TOP_SLICES };
 
 function byteLength( text ) {
     return textEncoder.encode( text ).length;
+}
+
+function getNow() {
+    return typeof performance !== 'undefined' && typeof performance.now === 'function'
+        ? performance.now()
+        : Date.now();
+}
+
+function createAbortError() {
+    try {
+        return new DOMException( 'The operation was aborted.', 'AbortError' );
+    } catch ( _error ) {
+        const abortError = new Error( 'The operation was aborted.' );
+        abortError.name = 'AbortError';
+        return abortError;
+    }
+}
+
+function throwIfAborted( signal ) {
+    if ( signal && signal.aborted ) {
+        throw createAbortError();
+    }
+}
+
+function yieldToUi() {
+    return new Promise( function ( resolve ) {
+        if (
+            typeof window !== 'undefined' &&
+            typeof window.requestAnimationFrame === 'function'
+        ) {
+            window.requestAnimationFrame( function () {
+                resolve();
+            } );
+            return;
+        }
+        setTimeout( resolve, 0 );
+    } );
+}
+
+function normalizeProgressPercent( processedBytes, totalBytes ) {
+    if ( totalBytes <= 0 ) {
+        return 100;
+    }
+    return Math.max(
+        0,
+        Math.min( 100, Math.round( ( processedBytes / totalBytes ) * 100 ) )
+    );
 }
 
 function incrementMap( map, key, amount ) {
@@ -192,21 +240,13 @@ function countIncludedTokenBytes( tokenText, tokenStart, exclusionSpans, spanInd
     return [ includedBytes, spanIndex ];
 }
 
-function computeEditorByteMaps( tokens ) {
+async function computeEditorByteMaps( tokens, options ) {
+    const signal = options && options.signal;
+    const onProgress = options && options.onProgress;
     const fullBytesByEditor = new Map();
     const filteredBytesByEditor = new Map();
-    const revisionText = tokens
-        .filter( function ( token ) {
-            return token && typeof token.str === 'string';
-        } )
-        .map( function ( token ) {
-            return token.str;
-        } )
-        .join( '' );
-    const exclusionSpans = buildExclusionSpans( revisionText );
-
-    let cursor = 0;
-    let spanIndex = 0;
+    const validTokens = [];
+    let totalBytes = 0;
 
     tokens.forEach( function ( token ) {
         if (
@@ -218,7 +258,42 @@ function computeEditorByteMaps( tokens ) {
         }
 
         const fullBytes = byteLength( token.str );
-        incrementMap( fullBytesByEditor, token.editor, fullBytes );
+        validTokens.push( {
+            editor: token.editor,
+            fullBytes: fullBytes,
+            str: token.str
+        } );
+        totalBytes += fullBytes;
+    } );
+
+    if ( typeof onProgress === 'function' ) {
+        onProgress( {
+            percent: 0,
+            phase: 'calculating',
+            processedBytes: 0,
+            totalBytes: totalBytes
+        } );
+        await yieldToUi();
+    }
+
+    throwIfAborted( signal );
+
+    const revisionText = validTokens
+        .map( function ( token ) {
+            return token.str;
+        } )
+        .join( '' );
+    const exclusionSpans = buildExclusionSpans( revisionText );
+
+    throwIfAborted( signal );
+
+    let cursor = 0;
+    let processedBytes = 0;
+    let lastYieldAt = getNow();
+    let spanIndex = 0;
+
+    for ( const token of validTokens ) {
+        incrementMap( fullBytesByEditor, token.editor, token.fullBytes );
 
         const result = countIncludedTokenBytes(
             token.str,
@@ -231,8 +306,27 @@ function computeEditorByteMaps( tokens ) {
         if ( includedBytes > 0 ) {
             incrementMap( filteredBytesByEditor, token.editor, includedBytes );
         }
+        processedBytes += token.fullBytes;
         cursor += token.str.length;
-    } );
+
+        if ( typeof onProgress === 'function' ) {
+            const now = getNow();
+            if (
+                processedBytes >= totalBytes ||
+                now - lastYieldAt >= CALCULATION_YIELD_INTERVAL_MS
+            ) {
+                onProgress( {
+                    percent: normalizeProgressPercent( processedBytes, totalBytes ),
+                    phase: 'calculating',
+                    processedBytes: processedBytes,
+                    totalBytes: totalBytes
+                } );
+                lastYieldAt = now;
+                await yieldToUi();
+                throwIfAborted( signal );
+            }
+        }
+    }
 
     return {
         fullBytesByEditor: fullBytesByEditor,
@@ -284,19 +378,21 @@ async function fetchLatestRevisionData( title, wiki, signal ) {
     };
 }
 
-async function resolveEditorLabels( api, editorIds ) {
+async function resolveEditorLabels( api, editorIds, signal ) {
     const labelsByEditor = new Map();
     const numericIds = editorIds.filter( function ( editorId ) {
         return /^\d+$/.test( editorId );
     } );
 
     for ( const group of chunk( numericIds, 50 ) ) {
+        throwIfAborted( signal );
         const response = await api.get( {
             action: 'query',
             list: 'users',
             ususerids: group.join( '|' ),
             formatversion: 2
         } );
+        throwIfAborted( signal );
         const users =
             response && response.query && Array.isArray( response.query.users )
                 ? response.query.users
@@ -413,6 +509,7 @@ export function normalizePageTitleForDisplay( pageName ) {
 
 export async function fetchContributionViews( options ) {
     const api = options.api;
+    const onProgress = options.onProgress;
     const title = options.title;
     const wiki = options.wiki;
     const signal = options.signal;
@@ -420,6 +517,7 @@ export async function fetchContributionViews( options ) {
     const localization = options.localization || {};
 
     const latest = await fetchLatestRevisionData( title, wiki, signal );
+    throwIfAborted( signal );
     const revisionData = latest.revisionData;
     const tokens = Array.isArray( revisionData.tokens ) ? revisionData.tokens : [];
 
@@ -427,14 +525,25 @@ export async function fetchContributionViews( options ) {
         throw new Error( 'WikiWho returned no tokens for the latest revision' );
     }
 
-    const editorByteMaps = computeEditorByteMaps( tokens );
+    const editorByteMaps = await computeEditorByteMaps( tokens, {
+        onProgress: onProgress,
+        signal: signal
+    } );
     const editorIds = Array.from(
         new Set( [
             ...editorByteMaps.fullBytesByEditor.keys(),
             ...editorByteMaps.filteredBytesByEditor.keys()
         ] )
     );
-    const labelsByEditor = await resolveEditorLabels( api, editorIds );
+    if ( typeof onProgress === 'function' ) {
+        onProgress( {
+            percent: 100,
+            phase: 'calculating'
+        } );
+        await yieldToUi();
+    }
+    const labelsByEditor = await resolveEditorLabels( api, editorIds, signal );
+    throwIfAborted( signal );
 
     return {
         articleTitle: latest.articleTitle,

@@ -31,6 +31,9 @@ const state = {
     excludingCitations: null,
     hideCitations: true,
     includingCitations: null,
+    loadingElapsedSeconds: 0,
+    loadingPhase: 'fetching',
+    loadingProgressPercent: 0,
     latestRevisionId: '',
     loading: false,
     open: false,
@@ -42,6 +45,8 @@ const state = {
 let openDialogForPage = null;
 let convByVar = fallbackConvByVar;
 let sharedState = null;
+let loadingTimerId = null;
+let loadingStartedAt = 0;
 
 function getState() {
     return sharedState || state;
@@ -117,11 +122,6 @@ function getStaticTexts() {
             hans: '当前视图下没有可显示的现存字节。',
             hant: '目前檢視下沒有可顯示的現存位元組。'
         } ),
-        fetching: t( {
-            en: 'Fetching authorship data…',
-            hans: '正在获取作者归属数据……',
-            hant: '正在取得作者歸屬資料……'
-        } ),
         includeCitations: t( {
             en: 'Hide citations (<ref>, {{r}})',
             hans: '隐藏引用（<ref>、{{r}}）',
@@ -146,6 +146,48 @@ function formatNumber( value ) {
 
 function formatPercent( value ) {
     return percentFormatter.format( value || 0 );
+}
+
+function clearLoadingTimer() {
+    if ( loadingTimerId !== null ) {
+        clearInterval( loadingTimerId );
+        loadingTimerId = null;
+    }
+}
+
+function startFetchLoadingTimer() {
+    const currentState = getState();
+    clearLoadingTimer();
+    loadingStartedAt = Date.now();
+    currentState.loadingElapsedSeconds = 0;
+    currentState.loadingPhase = 'fetching';
+    currentState.loadingProgressPercent = 0;
+
+    loadingTimerId = window.setInterval( function () {
+        const nextState = getState();
+        if ( !nextState.loading || nextState.loadingPhase !== 'fetching' ) {
+            clearLoadingTimer();
+            return;
+        }
+        nextState.loadingElapsedSeconds = Math.max(
+            0,
+            Math.floor( ( Date.now() - loadingStartedAt ) / 1000 )
+        );
+    }, 1000 );
+}
+
+function updateLoadingProgress( progress ) {
+    if ( !progress || progress.phase !== 'calculating' ) {
+        return;
+    }
+
+    const currentState = getState();
+    clearLoadingTimer();
+    currentState.loadingPhase = 'calculating';
+    currentState.loadingProgressPercent = Math.max(
+        0,
+        Math.min( 100, Math.round( progress.percent || 0 ) )
+    );
 }
 
 function ensureStyles() {
@@ -296,10 +338,14 @@ function buildChartOptions( view ) {
 
 function abortActiveRequest() {
     const currentState = getState();
+    clearLoadingTimer();
     if ( currentState.currentAbortController ) {
         currentState.currentAbortController.abort();
         currentState.currentAbortController = null;
     }
+    currentState.loadingElapsedSeconds = 0;
+    currentState.loadingPhase = 'fetching';
+    currentState.loadingProgressPercent = 0;
     currentState.loading = false;
 }
 
@@ -481,6 +527,31 @@ function createRootComponent( Vue ) {
                     .join( '; ' );
                 return `${ dialogTitle.value }. ${ detail }`;
             } );
+            const loadingMessage = computed( function () {
+                if ( reactiveState.loadingPhase === 'calculating' ) {
+                    return tf(
+                        {
+                            en: 'Calculating authorship ($percent%)…',
+                            hans: '正在计算作者归属（$percent%）……',
+                            hant: '正在計算作者歸屬（$percent%）……'
+                        },
+                        {
+                            percent: String( reactiveState.loadingProgressPercent || 0 )
+                        }
+                    );
+                }
+
+                return tf(
+                    {
+                        en: 'Fetching authorship data ($seconds s)…',
+                        hans: '正在获取作者归属数据（$seconds 秒）……',
+                        hant: '正在取得作者歸屬資料（$seconds 秒）……'
+                    },
+                    {
+                        seconds: String( reactiveState.loadingElapsedSeconds || 0 )
+                    }
+                );
+            } );
 
             watch(
                 function () {
@@ -503,6 +574,7 @@ function createRootComponent( Vue ) {
                 dialogTitle: dialogTitle,
                 exclusionsLabel: exclusionsLabel,
                 formatNumber: formatNumber,
+                loadingMessage: loadingMessage,
                 texts: texts,
                 state: reactiveState
             };
@@ -535,7 +607,7 @@ function createRootComponent( Vue ) {
         </div>
 
         <div v-if="state.loading" class="wwa-state" role="status">
-            {{ texts.fetching }}
+            {{ loadingMessage }}
         </div>
 
         <div v-else-if="state.error" class="wwa-state wwa-state--error" role="alert">
@@ -578,13 +650,23 @@ async function fetchAndPopulateState( api, pageName ) {
     currentState.includingCitations = null;
     currentState.excludingCitations = null;
     currentState.hideCitations = true;
+    currentState.loadingElapsedSeconds = 0;
+    currentState.loadingPhase = 'fetching';
+    currentState.loadingProgressPercent = 0;
     currentState.pageTitle = pageName;
     currentState.wiki = getCurrentWikiId();
+    startFetchLoadingTimer();
 
     try {
         const result = await fetchContributionViews( {
             api: api,
             localization: getLocalizationOptions(),
+            onProgress: function ( progress ) {
+                if ( currentState.currentAbortController !== controller ) {
+                    return;
+                }
+                updateLoadingProgress( progress );
+            },
             signal: controller.signal,
             title: normalizePageTitleForDisplay( pageName ),
             topSliceCount: DEFAULT_TOP_SLICES,
@@ -608,6 +690,7 @@ async function fetchAndPopulateState( api, pageName ) {
         }
         currentState.error = error && error.message ? error.message : String( error );
     } finally {
+        clearLoadingTimer();
         if ( currentState.currentAbortController === controller ) {
             currentState.currentAbortController = null;
             currentState.loading = false;
