@@ -41,6 +41,11 @@ const state = {
 
 let openDialogForPage = null;
 let convByVar = fallbackConvByVar;
+let sharedState = null;
+
+function getState() {
+    return sharedState || state;
+}
 
 function fallbackConvByVar( variants ) {
     return variants.en || variants.hant || variants.hans || '';
@@ -307,11 +312,12 @@ function buildChartOptions( view ) {
 }
 
 function abortActiveRequest() {
-    if ( state.currentAbortController ) {
-        state.currentAbortController.abort();
-        state.currentAbortController = null;
+    const currentState = getState();
+    if ( currentState.currentAbortController ) {
+        currentState.currentAbortController.abort();
+        currentState.currentAbortController = null;
     }
-    state.loading = false;
+    currentState.loading = false;
 }
 
 function shouldEnableScript() {
@@ -380,7 +386,8 @@ function createRootComponent( Vue ) {
         watch
     } = Vue;
 
-    const reactiveState = reactive( state );
+    const reactiveState = sharedState || reactive( state );
+    sharedState = reactiveState;
 
     return defineComponent( {
         name: 'WikiWhoAuthorshipRoot',
@@ -602,17 +609,18 @@ function createRootComponent( Vue ) {
 async function fetchAndPopulateState( api, pageName ) {
     abortActiveRequest();
 
+    const currentState = getState();
     const controller = new AbortController();
-    state.currentAbortController = controller;
-    state.loading = true;
-    state.error = '';
-    state.articleTitle = '';
-    state.latestRevisionId = '';
-    state.includingCitations = null;
-    state.excludingCitations = null;
-    state.hideCitations = true;
-    state.pageTitle = pageName;
-    state.wiki = getCurrentWikiId();
+    currentState.currentAbortController = controller;
+    currentState.loading = true;
+    currentState.error = '';
+    currentState.articleTitle = '';
+    currentState.latestRevisionId = '';
+    currentState.includingCitations = null;
+    currentState.excludingCitations = null;
+    currentState.hideCitations = true;
+    currentState.pageTitle = pageName;
+    currentState.wiki = getCurrentWikiId();
 
     try {
         const result = await fetchContributionViews( {
@@ -621,29 +629,29 @@ async function fetchAndPopulateState( api, pageName ) {
             signal: controller.signal,
             title: normalizePageTitleForDisplay( pageName ),
             topSliceCount: DEFAULT_TOP_SLICES,
-            wiki: state.wiki
+            wiki: currentState.wiki
         } );
 
-        if ( controller.signal.aborted || state.currentAbortController !== controller ) {
+        if ( controller.signal.aborted || currentState.currentAbortController !== controller ) {
             return;
         }
 
-        state.articleTitle = result.articleTitle || normalizePageTitleForDisplay( pageName );
-        state.latestRevisionId = result.revisionId;
-        state.includingCitations = result.includingCitations;
-        state.excludingCitations = result.excludingCitations;
+        currentState.articleTitle = result.articleTitle || normalizePageTitleForDisplay( pageName );
+        currentState.latestRevisionId = result.revisionId;
+        currentState.includingCitations = result.includingCitations;
+        currentState.excludingCitations = result.excludingCitations;
     } catch ( error ) {
         if (
             ( error && error.name === 'AbortError' ) ||
-            state.currentAbortController !== controller
+            currentState.currentAbortController !== controller
         ) {
             return;
         }
-        state.error = error && error.message ? error.message : String( error );
+        currentState.error = error && error.message ? error.message : String( error );
     } finally {
-        if ( state.currentAbortController === controller ) {
-            state.currentAbortController = null;
-            state.loading = false;
+        if ( currentState.currentAbortController === controller ) {
+            currentState.currentAbortController = null;
+            currentState.loading = false;
         }
     }
 }
@@ -677,7 +685,7 @@ mw.loader
         ensureStyles();
 
         openDialogForPage = function ( pageName ) {
-            state.open = true;
+            getState().open = true;
             fetchAndPopulateState( api, pageName );
         };
 
