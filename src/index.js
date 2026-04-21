@@ -167,7 +167,7 @@ function ensureStyles() {
     styleTag.id = 'wikiwho-authorship-styles';
     styleTag.textContent = `
 .wwa-dialog {
-    max-width: 960px;
+    max-width: 760px;
 }
 .wwa-body {
     display: grid;
@@ -176,7 +176,7 @@ function ensureStyles() {
 .wwa-status-grid {
     display: grid;
     gap: 8px 16px;
-    grid-template-columns: repeat( auto-fit, minmax( 180px, 1fr ) );
+    grid-template-columns: repeat( auto-fit, minmax( 110px, 1fr ) );
 }
 .wwa-status-card {
     border: 1px solid #c8ccd1;
@@ -218,15 +218,18 @@ function ensureStyles() {
     border-radius: 4px;
     padding: 12px;
     background: #fff;
+    width: 95%;
+    margin: 0 auto;
 }
 .wwa-chart {
-    height: 420px;
+    width: 100%;
+    margin: 0 auto;
     position: relative;
 }
-.wwa-note {
-    color: #54595d;
-    font-size: 12px;
-    line-height: 1.5;
+@media ( max-width: 450px ) {
+    .wwa-chart-panel {
+        max-width: 330px;
+    }
 }
 `;
     document.head.appendChild( styleTag );
